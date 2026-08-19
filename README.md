@@ -2,6 +2,15 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
+Create a `.env` file with your database URL. Do not commit real credentials.
+
+```bash
+DATABASE_URL="postgresql://..."
+APP_ORIGIN="http://localhost:3000"
+```
+
+`APP_ORIGIN` is used for same-origin checks on authentication form submissions. Set it to your production origin when deployed, for example `https://your-domain.com`.
+
 First, run the development server:
 
 ```bash
