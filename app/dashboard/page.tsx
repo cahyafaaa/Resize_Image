@@ -19,7 +19,7 @@ export default async function DashboardPage() {
             </div>
             <div>
               <h1 className="text-base font-bold tracking-tight text-slate-900 flex items-center gap-2">
-                Image Resizer Studio
+                Canyafaaa Resize
                 <span className="rounded-full bg-blue-50 border border-blue-200 px-2 py-0.5 text-[10px] font-bold text-blue-700">
                   PRO
                 </span>

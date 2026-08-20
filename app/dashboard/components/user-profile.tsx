@@ -27,6 +27,12 @@ export function UserProfile({ user, onProfileUpdated }: UserProfileProps) {
   const [infoFieldErrors, setInfoFieldErrors] = useState<Record<string, string>>({});
   const [isPendingInfo, startTransitionInfo] = useTransition();
 
+  // Sync state if user prop changes
+  React.useEffect(() => {
+    setName(user.name || "");
+    setEmail(user.email || "");
+  }, [user.name, user.email]);
+
   // Password Form State
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");

@@ -13,11 +13,15 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Resize Image App",
-  description: "Resize images from a protected dashboard.",
+  title: "Canyafaaa Resize",
+  description: "Fast, high-performance image resizer and optimizer powered by Sharp.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html
       lang="en"

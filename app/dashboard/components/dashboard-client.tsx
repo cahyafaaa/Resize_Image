@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { useRouter } from "next/navigation";
 import { ImageResizer } from "./image-resizer";
 import { ResultPreview } from "./result-preview";
 import { HistoryList } from "./history-list";
@@ -17,11 +18,25 @@ interface DashboardClientProps {
   initialHistory: ResizeHistoryItem[];
 }
 
-export function DashboardClient({ user: initialUser, initialHistory }: DashboardClientProps) {
+export function DashboardClient({
+  user: initialUser,
+  initialHistory = [],
+}: DashboardClientProps) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<"resizer" | "history" | "profile">("resizer");
   const [currentUser, setCurrentUser] = useState(initialUser);
   const [activeResult, setActiveResult] = useState<ResizeActionResult["data"] | null>(null);
-  const [history, setHistory] = useState<ResizeHistoryItem[]>(initialHistory);
+  const [history, setHistory] = useState<ResizeHistoryItem[]>(
+    Array.isArray(initialHistory) ? initialHistory : []
+  );
+  const [studioInitialFile, setStudioInitialFile] = useState<File | null>(null);
+
+  // Sync state if initialHistory changes
+  React.useEffect(() => {
+    if (Array.isArray(initialHistory)) {
+      setHistory(initialHistory);
+    }
+  }, [initialHistory]);
 
   const handleResizeSuccess = (data: NonNullable<ResizeActionResult["data"]>) => {
     setActiveResult(data);
@@ -50,6 +65,28 @@ export function DashboardClient({ user: initialUser, initialHistory }: Dashboard
 
   const handleReset = () => {
     setActiveResult(null);
+    setStudioInitialFile(null);
+  };
+
+  const handleDeleteHistoryJob = (id: string) => {
+    setHistory((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const handleSelectHistoryJob = async (job: ResizeHistoryItem) => {
+    try {
+      const res = await fetch(job.previewUrl);
+      if (!res.ok) throw new Error("Could not fetch image file");
+      const blob = await res.blob();
+      const ext = job.format.toLowerCase().replace("jpeg", "jpg");
+      const fileName = `${job.originalName.replace(/\.[^/.]+$/, "")}_edited.${ext}`;
+      const file = new File([blob], fileName, { type: blob.type || "image/jpeg" });
+
+      setStudioInitialFile(file);
+      setActiveResult(null);
+      setActiveTab("resizer");
+    } catch (err) {
+      console.error("Error opening history image in studio:", err);
+    }
   };
 
   const handleProfileUpdated = (newName: string, newEmail: string) => {
@@ -58,6 +95,7 @@ export function DashboardClient({ user: initialUser, initialHistory }: Dashboard
       name: newName,
       email: newEmail,
     }));
+    router.refresh();
   };
 
   return (
@@ -68,7 +106,7 @@ export function DashboardClient({ user: initialUser, initialHistory }: Dashboard
           <button
             type="button"
             onClick={() => setActiveTab("resizer")}
-            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-bold transition ${
+            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-bold transition cursor-pointer ${
               activeTab === "resizer"
                 ? "bg-blue-600 text-white shadow-md shadow-blue-500/25 scale-[1.02]"
                 : "text-slate-600 hover:bg-blue-50 hover:text-blue-700"
@@ -81,7 +119,7 @@ export function DashboardClient({ user: initialUser, initialHistory }: Dashboard
           <button
             type="button"
             onClick={() => setActiveTab("history")}
-            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-bold transition ${
+            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-bold transition cursor-pointer ${
               activeTab === "history"
                 ? "bg-blue-600 text-white shadow-md shadow-blue-500/25 scale-[1.02]"
                 : "text-slate-600 hover:bg-blue-50 hover:text-blue-700"
@@ -94,7 +132,7 @@ export function DashboardClient({ user: initialUser, initialHistory }: Dashboard
           <button
             type="button"
             onClick={() => setActiveTab("profile")}
-            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-bold transition ${
+            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-bold transition cursor-pointer ${
               activeTab === "profile"
                 ? "bg-blue-600 text-white shadow-md shadow-blue-500/25 scale-[1.02]"
                 : "text-slate-600 hover:bg-blue-50 hover:text-blue-700"
@@ -113,14 +151,22 @@ export function DashboardClient({ user: initialUser, initialHistory }: Dashboard
             {activeResult ? (
               <ResultPreview result={activeResult} onReset={handleReset} />
             ) : (
-              <ImageResizer onSuccess={handleResizeSuccess} />
+              <ImageResizer
+                onSuccess={handleResizeSuccess}
+                initialFile={studioInitialFile}
+              />
             )}
           </section>
 
           {/* Quick preview of history below studio */}
           {history.length > 0 && !activeResult && (
             <section className="border-t border-slate-200/80 pt-8">
-              <HistoryList initialHistory={history.slice(0, 3)} />
+              <HistoryList
+                initialHistory={history.slice(0, 3)}
+                onSelectJob={handleSelectHistoryJob}
+                onDeleteJob={handleDeleteHistoryJob}
+                onGoToStudio={() => setActiveTab("resizer")}
+              />
             </section>
           )}
         </div>
@@ -128,7 +174,12 @@ export function DashboardClient({ user: initialUser, initialHistory }: Dashboard
 
       {activeTab === "history" && (
         <section>
-          <HistoryList initialHistory={history} />
+          <HistoryList
+            initialHistory={history}
+            onSelectJob={handleSelectHistoryJob}
+            onDeleteJob={handleDeleteHistoryJob}
+            onGoToStudio={() => setActiveTab("resizer")}
+          />
         </section>
       )}
 
@@ -143,3 +194,4 @@ export function DashboardClient({ user: initialUser, initialHistory }: Dashboard
     </div>
   );
 }
+

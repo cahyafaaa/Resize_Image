@@ -77,10 +77,13 @@ export async function GET(
         "Cache-Control": "private, max-age=86400",
       };
 
+      const safeFileName = fileName.replace(/["\r\n]/g, "_");
+      const encodedFileName = encodeURIComponent(fileName);
+
       if (download) {
-        headers["Content-Disposition"] = `attachment; filename="${encodeURIComponent(fileName)}"`;
+        headers["Content-Disposition"] = `attachment; filename="${safeFileName}"; filename*=UTF-8''${encodedFileName}`;
       } else {
-        headers["Content-Disposition"] = `inline; filename="${encodeURIComponent(fileName)}"`;
+        headers["Content-Disposition"] = `inline; filename="${safeFileName}"; filename*=UTF-8''${encodedFileName}`;
       }
 
       return new NextResponse(fileBuffer, {

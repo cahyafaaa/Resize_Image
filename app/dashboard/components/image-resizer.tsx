@@ -11,6 +11,7 @@ import {
   RefreshIcon,
   LinkIcon,
   GlobeIcon,
+  CheckIcon,
 } from "./icons";
 import {
   resizeImageAction,
@@ -20,6 +21,7 @@ import {
 
 interface ImageResizerProps {
   onSuccess: (result: NonNullable<ResizeActionResult["data"]>) => void;
+  initialFile?: File | null;
 }
 
 interface DimensionPreset {
@@ -35,7 +37,7 @@ const PRESETS: DimensionPreset[] = [
   { name: "YouTube Thumbnail", category: "Social", width: 1280, height: 720 },
   { name: "Twitter / X Post", category: "Social", width: 1200, height: 675 },
   { name: "Twitter / X Header", category: "Social", width: 1500, height: 500 },
-  { name: "Facebook Banner", category: "Social", width: 820, height: 312 },
+  { name: "Facebook Cover", category: "Social", width: 820, height: 312 },
   { name: "Full HD (1080p)", category: "Standard", width: 1920, height: 1080 },
   { name: "HD (720p)", category: "Standard", width: 1280, height: 720 },
   { name: "4K Ultra HD", category: "Standard", width: 3840, height: 2160 },
@@ -43,29 +45,48 @@ const PRESETS: DimensionPreset[] = [
 
 const PERCENT_SCALES = [25, 50, 75, 100, 150, 200];
 
-const SAMPLE_IMAGES = [
+// High quality bundled sample images with 100% reliable local endpoints
+const LOCAL_SAMPLE_IMAGES = [
   {
-    title: "Mountain Vista",
-    desc: "1600 × 1067 px",
-    url: "https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=1600&auto=format&fit=crop&q=80",
+    id: "mountain",
+    title: "Alpine Sunrise",
+    desc: "1920 × 1080 px • Landscape",
+    path: "/samples/sample-mountain.jpg",
+    width: 1920,
+    height: 1080,
   },
   {
-    title: "Cyber City Night",
-    desc: "1600 × 1067 px",
-    url: "https://images.unsplash.com/photo-1514565131-fce0801e5785?w=1600&auto=format&fit=crop&q=80",
+    id: "city",
+    title: "Cyber Metropolis",
+    desc: "1600 × 1200 px • 4:3 Ratio",
+    path: "/samples/sample-city.jpg",
+    width: 1600,
+    height: 1200,
   },
   {
-    title: "Abstract Neon Flow",
-    desc: "1600 × 1067 px",
-    url: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1600&auto=format&fit=crop&q=80",
+    id: "abstract",
+    title: "Abstract Geometry",
+    desc: "1400 × 1400 px • Square 1:1",
+    path: "/samples/sample-abstract.jpg",
+    width: 1400,
+    height: 1400,
+  },
+  {
+    id: "product",
+    title: "Studio Showcase",
+    desc: "1200 × 800 px • Product",
+    path: "/samples/sample-product.jpg",
+    width: 1200,
+    height: 800,
   },
 ];
 
 // Helper to convert Base64 Data URL to a browser File object
 function dataURLtoFile(dataurl: string, filename: string): File {
-  const arr = dataurl.split(",");
-  const mime = arr[0].match(/:(.*?);/)?.[1] || "image/jpeg";
-  const bstr = atob(arr[1]);
+  const parts = dataurl.split(",");
+  const mimeMatch = parts[0].match(/:(.*?);/);
+  const mime = mimeMatch ? mimeMatch[1] : "image/jpeg";
+  const bstr = atob(parts[1]);
   let n = bstr.length;
   const u8arr = new Uint8Array(n);
   while (n--) {
@@ -74,13 +95,24 @@ function dataURLtoFile(dataurl: string, filename: string): File {
   return new File([u8arr], filename, { type: mime });
 }
 
-export function ImageResizer({ onSuccess }: ImageResizerProps) {
+// Check whether file is an acceptable image (by MIME or Extension)
+function isValidImageFile(f: File): boolean {
+  if (f.type && f.type.startsWith("image/")) return true;
+  const ext = f.name.split(".").pop()?.toLowerCase();
+  if (ext && ["jpg", "jpeg", "png", "webp", "avif", "gif", "svg", "bmp", "tiff", "jfif", "ico"].includes(ext)) {
+    return true;
+  }
+  return false;
+}
+
+export function ImageResizer({ onSuccess, initialFile }: ImageResizerProps) {
   // Import mode: 'upload' | 'url' | 'sample'
   const [importMode, setImportMode] = useState<"upload" | "url" | "sample">("upload");
   const [urlInput, setUrlInput] = useState("");
   const [isImportingUrl, setIsImportingUrl] = useState(false);
+  const [loadingSampleId, setLoadingSampleId] = useState<string | null>(null);
 
-  const [file, setFile] = useState<File | null>(null);
+  const [file, setFile] = useState<File | null>(initialFile || null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [originalWidth, setOriginalWidth] = useState<number | null>(null);
   const [originalHeight, setOriginalHeight] = useState<number | null>(null);
@@ -97,6 +129,7 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragCounterRef = useRef<number>(0);
   const [isDragging, setIsDragging] = useState(false);
 
   // Clean up object URLs
@@ -107,6 +140,13 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
       }
     };
   }, [previewUrl]);
+
+  // If initialFile is passed (e.g. from history re-edit)
+  useEffect(() => {
+    if (initialFile) {
+      handleFileSelect(initialFile);
+    }
+  }, [initialFile]);
 
   // Global Clipboard Paste Listener (Ctrl + V)
   useEffect(() => {
@@ -131,8 +171,8 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
   }, [file]);
 
   const handleFileSelect = (selectedFile: File) => {
-    if (!selectedFile.type.startsWith("image/")) {
-      setErrorMessage("Please select a valid image file (JPEG, PNG, WebP, etc.)");
+    if (!isValidImageFile(selectedFile)) {
+      setErrorMessage("Please select a valid image file (JPEG, PNG, WebP, AVIF, BMP, SVG, etc.)");
       return;
     }
 
@@ -145,8 +185,8 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
     // Read image dimensions
     const img = new Image();
     img.onload = () => {
-      const naturalW = img.naturalWidth;
-      const naturalH = img.naturalHeight;
+      const naturalW = img.naturalWidth || 1000;
+      const naturalH = img.naturalHeight || 1000;
       setOriginalWidth(naturalW);
       setOriginalHeight(naturalH);
       setWidth(naturalW);
@@ -154,24 +194,87 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
       const ratio = naturalW / naturalH;
       setAspectRatio(ratio);
     };
+    img.onerror = () => {
+      // Fallback if SVG or non-standard image
+      setOriginalWidth(1200);
+      setOriginalHeight(800);
+      setWidth(1200);
+      setHeight(800);
+      setAspectRatio(1.5);
+    };
     img.src = objectUrl;
   };
 
+  // Instant local sample image loader
+  const handleSelectSample = async (sample: typeof LOCAL_SAMPLE_IMAGES[0]) => {
+    setErrorMessage(null);
+    setLoadingSampleId(sample.id);
+
+    try {
+      const response = await fetch(sample.path);
+      if (!response.ok) {
+        throw new Error(`Failed to load sample image: ${response.statusText}`);
+      }
+
+      const blob = await response.blob();
+      const filename = `${sample.id}-demo.jpg`;
+      const sampleFile = new File([blob], filename, { type: "image/jpeg" });
+      handleFileSelect(sampleFile);
+    } catch (err: any) {
+      console.error("Error loading sample image:", err);
+      setErrorMessage(err?.message || "Failed to load sample image.");
+    } finally {
+      setLoadingSampleId(null);
+    }
+  };
+
+  // Import image from external URL
   const handleImportFromUrl = async (targetUrl: string) => {
-    if (!targetUrl.trim()) return;
+    const cleanUrl = targetUrl.trim();
+    if (!cleanUrl) {
+      setErrorMessage("Please enter a valid image URL.");
+      return;
+    }
+
+    if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) {
+      setErrorMessage("Please enter a complete URL starting with http:// or https://");
+      return;
+    }
+
     setErrorMessage(null);
     setIsImportingUrl(true);
 
     try {
-      const res = await importImageFromUrlAction(targetUrl);
+      // First attempt: direct client fetch (super fast if CORS allows)
+      try {
+        const directRes = await fetch(cleanUrl, { mode: "cors" });
+        if (directRes.ok) {
+          const contentType = directRes.headers.get("content-type") || "";
+          if (contentType.includes("image") || contentType.includes("octet-stream")) {
+            const blob = await directRes.blob();
+            const urlPath = new URL(cleanUrl).pathname;
+            const rawName = urlPath.split("/").pop()?.split("?")[0] || "imported_image.jpg";
+            const fileName = rawName.includes(".") ? rawName : `${rawName}.jpg`;
+            const convertedFile = new File([blob], fileName, { type: blob.type || "image/jpeg" });
+            handleFileSelect(convertedFile);
+            setIsImportingUrl(false);
+            return;
+          }
+        }
+      } catch {
+        // Direct fetch failed (likely CORS), fallback to server action
+      }
+
+      // Fallback: fetch via Server Action
+      const res = await importImageFromUrlAction(cleanUrl);
       if (res.success && res.data) {
         const convertedFile = dataURLtoFile(res.data.base64, res.data.name);
         handleFileSelect(convertedFile);
       } else {
-        setErrorMessage(res.message || "Failed to import image from the URL.");
+        setErrorMessage(res.message || "Failed to download image from the provided URL.");
       }
     } catch (err: any) {
-      setErrorMessage(err?.message || "Failed to download image from the provided URL.");
+      setErrorMessage(err?.message || "Failed to download image from the URL. Please verify the link is accessible.");
     } finally {
       setIsImportingUrl(false);
     }
@@ -216,7 +319,7 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
     const targetH = typeof height === "number" ? height : parseInt(height, 10);
 
     if ((!targetW || isNaN(targetW)) && (!targetH || isNaN(targetH))) {
-      setErrorMessage("Please enter at least a valid width or height.");
+      setErrorMessage("Please enter at least a valid target width or height in pixels.");
       return;
     }
 
@@ -235,7 +338,7 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
       if (response.success && response.data) {
         onSuccess(response.data);
       } else {
-        setErrorMessage(response.message || "Failed to resize image.");
+        setErrorMessage(response.message || "Failed to resize image. Please try again.");
       }
     });
   };
@@ -252,17 +355,57 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  // Drag and drop event handlers with dragCounter
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current += 1;
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsDragging(true);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDragging(false);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = 0;
+    setIsDragging(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleFileSelect(e.dataTransfer.files[0]);
+    }
+  };
+
   return (
     <div className="rounded-3xl border border-blue-100 bg-white p-6 sm:p-8 shadow-sm transition">
       {errorMessage && (
         <div
           role="alert"
-          className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-xs sm:text-sm text-red-700 flex items-center justify-between shadow-xs"
+          className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-xs sm:text-sm text-red-700 flex items-center justify-between shadow-xs animate-in fade-in"
         >
-          <span className="font-medium">{errorMessage}</span>
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-red-600">Error:</span>
+            <span>{errorMessage}</span>
+          </div>
           <button
+            type="button"
             onClick={() => setErrorMessage(null)}
-            className="text-red-500 hover:text-red-800 font-bold ml-2 text-base"
+            className="text-red-500 hover:text-red-800 font-bold ml-3 text-lg leading-none"
           >
             ×
           </button>
@@ -272,7 +415,7 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
       {/* Upload / Import Modes */}
       {!file ? (
         <div className="space-y-6">
-          {/* Import Method Tabs */}
+          {/* Import Method Navigation Tabs */}
           <div className="flex flex-wrap items-center gap-2 border-b border-blue-100 pb-4">
             <button
               type="button"
@@ -280,7 +423,7 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
               className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-bold transition ${
                 importMode === "upload"
                   ? "bg-blue-600 text-white shadow-md shadow-blue-500/25"
-                  : "bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-700"
+                  : "bg-slate-100 text-slate-700 hover:bg-blue-50 hover:text-blue-700"
               }`}
             >
               <UploadIcon className="w-4 h-4" />
@@ -293,7 +436,7 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
               className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-bold transition ${
                 importMode === "url"
                   ? "bg-blue-600 text-white shadow-md shadow-blue-500/25"
-                  : "bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-700"
+                  : "bg-slate-100 text-slate-700 hover:bg-blue-50 hover:text-blue-700"
               }`}
             >
               <LinkIcon className="w-4 h-4" />
@@ -306,7 +449,7 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
               className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-bold transition ${
                 importMode === "sample"
                   ? "bg-blue-600 text-white shadow-md shadow-blue-500/25"
-                  : "bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-700"
+                  : "bg-slate-100 text-slate-700 hover:bg-blue-50 hover:text-blue-700"
               }`}
             >
               <GlobeIcon className="w-4 h-4" />
@@ -316,63 +459,61 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
 
           {/* TAB 1: Upload File Drag & Drop */}
           {importMode === "upload" && (
-            <div
-              onDragOver={(e) => {
-                e.preventDefault();
-                setIsDragging(true);
-              }}
-              onDragLeave={() => setIsDragging(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setIsDragging(false);
-                if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                  handleFileSelect(e.dataTransfer.files[0]);
-                }
-              }}
-              onClick={() => fileInputRef.current?.click()}
-              className={`flex flex-col items-center justify-center rounded-3xl border-2 border-dashed p-10 sm:p-14 text-center cursor-pointer transition ${
-                isDragging
-                  ? "border-blue-600 bg-blue-50/80 scale-[0.99]"
-                  : "border-blue-200 bg-blue-50/30 hover:border-blue-400 hover:bg-blue-50/60"
-              }`}
-            >
+            <div>
               <input
-                ref={fileInputRef}
+                id="file-upload-input"
                 type="file"
-                accept="image/*"
-                className="hidden"
+                accept="image/*,.jpg,.jpeg,.png,.webp,.avif,.gif,.svg,.bmp,.tiff,.jfif,.ico"
+                className="sr-only hidden"
+                onClick={(e) => {
+                  (e.target as HTMLInputElement).value = "";
+                }}
                 onChange={(e) => {
                   if (e.target.files && e.target.files[0]) {
                     handleFileSelect(e.target.files[0]);
                   }
                 }}
               />
-              <div className="rounded-2xl bg-white p-4 shadow-md shadow-blue-500/10 border border-blue-100 text-blue-600">
-                <UploadIcon className="w-8 h-8" />
-              </div>
-              <h3 className="mt-4 text-base font-bold text-slate-900">
-                Choose an image or drag & drop here
-              </h3>
-              <p className="mt-1.5 text-xs text-slate-500 max-w-sm">
-                Supports PNG, JPG, JPEG, WEBP, AVIF up to 25MB • You can also press{" "}
-                <kbd className="rounded-md bg-blue-100 px-1.5 py-0.5 font-mono text-[10px] font-bold text-blue-800 border border-blue-200">
-                  Ctrl + V
-                </kbd>{" "}
-                anywhere to paste
-              </p>
-              <span className="mt-5 rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-blue-500/25 hover:bg-blue-700 transition">
-                Browse Files from Device
-              </span>
+
+              <label
+                htmlFor="file-upload-input"
+                onDragEnter={handleDragEnter}
+                onDragLeave={handleDragLeave}
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
+                className={`group flex flex-col items-center justify-center rounded-3xl border-2 border-dashed p-10 sm:p-14 text-center cursor-pointer transition ${
+                  isDragging
+                    ? "border-blue-600 bg-blue-100/60 scale-[0.99] shadow-inner"
+                    : "border-blue-200 bg-blue-50/30 hover:border-blue-500 hover:bg-blue-50/70"
+                }`}
+              >
+                <div className="pointer-events-none rounded-2xl bg-white p-4 shadow-md shadow-blue-500/10 border border-blue-100 text-blue-600 group-hover:scale-110 transition">
+                  <UploadIcon className="w-8 h-8" />
+                </div>
+                <h3 className="pointer-events-none mt-4 text-base font-bold text-slate-900">
+                  {isDragging ? "Drop your image right here!" : "Choose an image or drag & drop here"}
+                </h3>
+                <p className="pointer-events-none mt-1.5 text-xs text-slate-500 max-w-md">
+                  Supports PNG, JPG, JPEG, WEBP, AVIF up to 50MB • You can also press{" "}
+                  <kbd className="rounded-md bg-blue-100 px-1.5 py-0.5 font-mono text-[10px] font-bold text-blue-800 border border-blue-200">
+                    Ctrl + V
+                  </kbd>{" "}
+                  to paste from clipboard
+                </p>
+                <span className="pointer-events-none mt-5 rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-blue-500/25 group-hover:bg-blue-700 transition inline-block">
+                  Browse Files from Device
+                </span>
+              </label>
             </div>
           )}
 
-          {/* TAB 2: Import from URL */}
+          {/* TAB 2: Import from Web URL */}
           {importMode === "url" && (
             <div className="rounded-3xl border border-blue-100 bg-blue-50/20 p-6 sm:p-8 space-y-4">
               <div>
-                <h3 className="text-sm font-bold text-slate-900">Import Image from URL</h3>
+                <h3 className="text-sm font-bold text-slate-900">Import Image from Web URL</h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Paste any public direct link to an image on the web (e.g. Unsplash, Wikimedia, etc.).
+                  Paste any public direct link to an image on the web (e.g. Unsplash, Cloudinary, Wikimedia, etc.).
                 </p>
               </div>
 
@@ -385,7 +526,7 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
                     type="url"
                     value={urlInput}
                     onChange={(e) => setUrlInput(e.target.value)}
-                    placeholder="https://example.com/photo.jpg"
+                    placeholder="https://images.unsplash.com/photo-..."
                     className="w-full rounded-xl border border-blue-200 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20 shadow-xs"
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
@@ -415,6 +556,33 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
                   )}
                 </button>
               </div>
+
+              {/* Quick sample URL buttons */}
+              <div className="pt-2">
+                <span className="text-xs font-semibold text-slate-500 mr-2">Try sample link:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const sampleUrl = "https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=1600&auto=format&fit=crop&q=80";
+                    setUrlInput(sampleUrl);
+                    handleImportFromUrl(sampleUrl);
+                  }}
+                  className="text-xs text-blue-600 hover:text-blue-800 underline font-medium mr-3"
+                >
+                  Unsplash Landscape
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const sampleUrl = "https://images.unsplash.com/photo-1514565131-fce0801e5785?w=1600&auto=format&fit=crop&q=80";
+                    setUrlInput(sampleUrl);
+                    handleImportFromUrl(sampleUrl);
+                  }}
+                  className="text-xs text-blue-600 hover:text-blue-800 underline font-medium"
+                >
+                  Unsplash Cyber Night
+                </button>
+              </div>
             </div>
           )}
 
@@ -424,33 +592,54 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
               <div>
                 <h3 className="text-sm font-bold text-slate-900">Try with Sample Images</h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Click any sample image below to instantly load it into the resizer.
+                  Click any high-resolution sample image below to instantly load it into the Image Studio without uploading.
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {SAMPLE_IMAGES.map((sample) => (
-                  <button
-                    key={sample.title}
-                    type="button"
-                    disabled={isImportingUrl}
-                    onClick={() => handleImportFromUrl(sample.url)}
-                    className="group relative flex flex-col rounded-2xl border border-blue-100 bg-white p-3.5 text-left transition hover:border-blue-500 hover:shadow-md hover:shadow-blue-500/10"
-                  >
-                    <div className="relative h-32 w-full overflow-hidden rounded-xl bg-slate-100 mb-2.5">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={sample.url}
-                        alt={sample.title}
-                        className="h-full w-full object-cover transition group-hover:scale-105"
-                      />
-                    </div>
-                    <span className="font-bold text-xs text-slate-900 group-hover:text-blue-600 transition">
-                      {sample.title}
-                    </span>
-                    <span className="text-[11px] text-blue-600/80 font-medium mt-0.5">{sample.desc}</span>
-                  </button>
-                ))}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {LOCAL_SAMPLE_IMAGES.map((sample) => {
+                  const isLoadingThis = loadingSampleId === sample.id;
+                  return (
+                    <button
+                      key={sample.id}
+                      type="button"
+                      disabled={loadingSampleId !== null}
+                      onClick={() => handleSelectSample(sample)}
+                      className={`group relative flex flex-col rounded-2xl border bg-white p-3.5 text-left transition hover:shadow-md ${
+                        isLoadingThis
+                          ? "border-blue-600 ring-2 ring-blue-500/30"
+                          : "border-blue-100 hover:border-blue-500 hover:shadow-blue-500/10"
+                      }`}
+                    >
+                      <div className="relative h-32 w-full overflow-hidden rounded-xl bg-slate-100 mb-2.5">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={sample.path}
+                          alt={sample.title}
+                          className="h-full w-full object-cover transition group-hover:scale-105"
+                          loading="lazy"
+                        />
+                        {isLoadingThis && (
+                          <div className="absolute inset-0 bg-blue-900/60 flex items-center justify-center backdrop-blur-xs text-white">
+                            <RefreshIcon className="w-6 h-6 animate-spin text-white" />
+                          </div>
+                        )}
+                        <span className="absolute bottom-2 right-2 rounded-md bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur-xs">
+                          {sample.width}×{sample.height}
+                        </span>
+                      </div>
+                      <span className="font-bold text-xs text-slate-900 group-hover:text-blue-600 transition flex items-center justify-between">
+                        {sample.title}
+                        <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
+                          LOAD
+                        </span>
+                      </span>
+                      <span className="text-[11px] text-slate-500 font-medium mt-0.5">
+                        {sample.desc}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -464,10 +653,15 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
                 <ImageIcon className="w-5 h-5" />
               </div>
               <div>
-                <p className="font-bold text-slate-900 text-sm">{file.name}</p>
+                <p className="font-bold text-slate-900 text-sm truncate max-w-xs sm:max-w-md" title={file.name}>
+                  {file.name}
+                </p>
                 <p className="text-xs text-slate-500">
-                  Original: <span className="font-semibold text-blue-700">{originalWidth} × {originalHeight} px</span> •{" "}
-                  {(file.size / (1024 * 1024)).toFixed(2)} MB
+                  Original:{" "}
+                  <span className="font-semibold text-blue-700">
+                    {originalWidth ?? "..."} × {originalHeight ?? "..."} px
+                  </span>{" "}
+                  • {(file.size / (1024 * 1024)).toFixed(2)} MB
                 </p>
               </div>
             </div>
@@ -478,12 +672,12 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
               className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-white px-3.5 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 transition shadow-2xs"
             >
               <RefreshIcon className="w-3.5 h-3.5" />
-              Import Different Image
+              Choose Another Image
             </button>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-            {/* Left: Preview thumbnail */}
+            {/* Left: Preview Thumbnail */}
             <div className="lg:col-span-5 flex flex-col items-center justify-center rounded-2xl bg-blue-50/30 border border-blue-100 p-5">
               <div className="relative flex items-center justify-center max-h-[300px] w-full overflow-hidden rounded-xl bg-white/80 p-2 shadow-inner border border-blue-100">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -498,7 +692,7 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
               </div>
             </div>
 
-            {/* Right: Resize Settings */}
+            {/* Right: Resize Settings Form */}
             <div className="lg:col-span-7 space-y-6">
               {/* Dimension Inputs */}
               <div>
@@ -533,7 +727,7 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
                     <input
                       type="number"
                       min={1}
-                      max={10000}
+                      max={15000}
                       value={width}
                       onChange={(e) => handleWidthChange(e.target.value)}
                       placeholder="e.g. 1920"
@@ -546,7 +740,7 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
                     <input
                       type="number"
                       min={1}
-                      max={10000}
+                      max={15000}
                       value={height}
                       onChange={(e) => handleHeightChange(e.target.value)}
                       placeholder="e.g. 1080"
@@ -556,7 +750,7 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
                 </div>
               </div>
 
-              {/* Quick Percentage Scale */}
+              {/* Quick Percentage Scaling */}
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-2">
                   Scale Percentage
@@ -575,7 +769,7 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
                 </div>
               </div>
 
-              {/* Quick Social & Resolution Presets */}
+              {/* Popular Presets */}
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-2">
                   Popular Presets
@@ -588,13 +782,16 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
                       onClick={() => applyPreset(preset.width, preset.height)}
                       className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 transition hover:border-blue-500 hover:bg-blue-50/60 hover:text-blue-700 shadow-2xs"
                     >
-                      {preset.name} <span className="text-slate-400 font-normal">({preset.width}×{preset.height})</span>
+                      {preset.name}{" "}
+                      <span className="text-slate-400 font-normal">
+                        ({preset.width}×{preset.height})
+                      </span>
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Format, Quality, and Fit Options */}
+              {/* Output Format, Fit Mode, and Quality */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border-t border-blue-100 pt-5">
                 {/* Format */}
                 <div>
@@ -604,12 +801,12 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
                   <select
                     value={format}
                     onChange={(e) => setFormat(e.target.value as any)}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20 shadow-xs"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20 shadow-xs cursor-pointer"
                   >
                     <option value="JPEG">JPEG (Most Compatible)</option>
                     <option value="WEBP">WEBP (Recommended)</option>
                     <option value="PNG">PNG (Lossless / Transparent)</option>
-                    <option value="AVIF">AVIF (Smallest Size)</option>
+                    <option value="AVIF">AVIF (Smallest File Size)</option>
                   </select>
                 </div>
 
@@ -621,7 +818,7 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
                   <select
                     value={fit}
                     onChange={(e) => setFit(e.target.value as any)}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20 shadow-xs"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/20 shadow-xs cursor-pointer"
                   >
                     <option value="cover">Cover (Crop to fill)</option>
                     <option value="contain">Contain (Keep all, pad)</option>
@@ -653,7 +850,7 @@ export function ImageResizer({ onSuccess }: ImageResizerProps) {
               <button
                 type="submit"
                 disabled={isPending}
-                className="w-full flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-600 py-3.5 px-6 text-sm font-bold text-white shadow-lg shadow-blue-500/30 transition hover:from-blue-700 hover:to-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="w-full flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-600 py-3.5 px-6 text-sm font-bold text-white shadow-lg shadow-blue-500/30 transition hover:from-blue-700 hover:to-indigo-700 disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
               >
                 {isPending ? (
                   <>

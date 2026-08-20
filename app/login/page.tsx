@@ -23,7 +23,7 @@ export default async function LoginPage({
         <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-white shadow-xs group-hover:bg-slate-800 transition">
           <SparklesIcon className="w-5 h-5 text-emerald-400" />
         </div>
-        <span className="text-lg font-bold tracking-tight">Image Resizer Studio</span>
+        <span className="text-lg font-bold tracking-tight">Canyafaaa</span>
       </Link>
 
       <section className="w-full max-w-md">

@@ -124,20 +124,15 @@ export async function updatePasswordAction(
       select: { passwordHash: true },
     });
 
-    if (!dbUser || !dbUser.passwordHash) {
-      return {
-        success: false,
-        message: "Unable to verify current password.",
-      };
-    }
-
-    const passwordValid = await compare(currentPassword, dbUser.passwordHash);
-    if (!passwordValid) {
-      return {
-        success: false,
-        message: "Current password is incorrect.",
-        fieldErrors: { currentPassword: "Incorrect password." },
-      };
+    if (dbUser?.passwordHash) {
+      const passwordValid = await compare(currentPassword, dbUser.passwordHash);
+      if (!passwordValid) {
+        return {
+          success: false,
+          message: "Current password is incorrect.",
+          fieldErrors: { currentPassword: "Incorrect password." },
+        };
+      }
     }
 
     const newPasswordHash = await hash(newPassword, 12);

@@ -15,7 +15,7 @@ export default async function Home() {
               <SparklesIcon className="w-5 h-5 text-white" />
             </div>
             <span className="text-base font-extrabold tracking-tight text-slate-900">
-              Image Resizer Studio
+              Canyafaaa
             </span>
           </div>
 
@@ -118,7 +118,7 @@ export default async function Home() {
       {/* Footer */}
       <footer className="border-t border-blue-100 bg-white py-6">
         <div className="mx-auto max-w-6xl px-4 text-center text-xs font-medium text-slate-500">
-          © {new Date().getFullYear()} Image Resizer Studio. Built with Next.js, Tailwind CSS & Sharp.
+          © {new Date().getFullYear()} Canyafaaa Resize. Built with Next.js, Tailwind CSS & Sharp.
         </div>
       </footer>
     </main>
