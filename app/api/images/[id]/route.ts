@@ -70,7 +70,7 @@ export async function GET(
     }
 
     try {
-      const fileBuffer = await fs.readFile(filePath);
+      const fileBuffer = await fs.readFile(/*turbopackIgnore: true*/ filePath);
 
       const headers: Record<string, string> = {
         "Content-Type": mimeType,
