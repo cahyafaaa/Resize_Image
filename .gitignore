@@ -9,8 +9,8 @@
 .env.development.local
 .env.test.local
 .env.production.local
-# Jangan ignore .env.example agar developer lain tahu template variabelnya
-!.env.example
+.env.example
+
 
 # ==========================================
 # 2. User Uploads & File Storage (Data Pengguna)
